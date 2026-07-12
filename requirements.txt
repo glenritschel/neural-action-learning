@@ -1,0 +1,10 @@
+torch
+torch_geometric
+numpy
+networkx
+matplotlib
+plotly
+hydra-core
+jupyter
+pandas
+pyarrow
