@@ -1,0 +1,11 @@
+world:
+  grid_size:
+    x: 20
+    y: 20
+  time_steps: 40
+
+weights:
+  move: 1.0
+  turn: 0.25
+  obstacle: 100.0
+  acceleration: 1.0
