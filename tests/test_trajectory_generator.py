@@ -9,8 +9,8 @@ def test_trajectory_generator_depth_1():
     calculator = ActionCalculator(world)
     generator = TrajectoryGenerator(world, calculator)
 
-    # Start at (2, 2, 0). Depth = 1 move (so 2 states total).
-    start_state = (2, 2, 0)
+    # Start at (2, 2, 0, 0, 0). Depth = 1 move (so 2 states total).
+    start_state = (2, 2, 0, 0, 0)
     results = generator.generate(start_state, depth=1)
 
     # Possible moves: UP, DOWN, LEFT, RIGHT, STAY -> 5 moves.
@@ -20,15 +20,15 @@ def test_trajectory_generator_depth_1():
     for r in results:
         traj = r["trajectory"]
         assert len(traj) == 2
-        assert traj[0] == (2, 2, 0)
+        assert traj[0] == (2, 2, 0, 0, 0)
         assert r["metadata"]["length"] == 2
-        assert r["metadata"]["start"] == (2, 2, 0)
+        assert r["metadata"]["start"] == (2, 2, 0, 0, 0)
 
         # Check endpoint
         assert r["endpoint"] == traj[-1]
 
         # Check time increment
-        assert traj[-1][2] == 1
+        assert traj[-1][4] == 1
 
 def test_trajectory_generator_bounds():
     # Setup world and calculator
@@ -36,8 +36,8 @@ def test_trajectory_generator_bounds():
     calculator = ActionCalculator(world)
     generator = TrajectoryGenerator(world, calculator)
 
-    # Start at corner (0, 0, 0).
-    start_state = (0, 0, 0)
+    # Start at corner (0, 0, 0, 0, 0).
+    start_state = (0, 0, 0, 0, 0)
     results = generator.generate(start_state, depth=1)
 
     # Valid moves from (0,0): UP(0,1), RIGHT(1,0), STAY(0,0)
@@ -53,15 +53,15 @@ def test_trajectory_generator_obstacles():
     calculator = ActionCalculator(world)
     generator = TrajectoryGenerator(world, calculator)
 
-    # Start at (0, 1, 0)
-    start_state = (0, 1, 0)
+    # Start at (0, 1, 0, 0, 0)
+    start_state = (0, 1, 0, 0, 0)
     results = generator.generate(start_state, depth=1)
 
+    # Now that we use soft obstacles, all 4 within-bounds actions are valid states
     # Valid from (0,1): UP(0,2), DOWN(0,0), LEFT(-1,1 - OOB), RIGHT(1,1 - OBSTACLE), STAY(0,1)
-    # The trajectory generator only adds if it's a valid state, so (1,1) will be skipped.
-    assert len(results) == 3
+    assert len(results) == 4
     endpoints = set([(r["endpoint"][0], r["endpoint"][1]) for r in results])
-    assert (1, 1) not in endpoints
+    assert (1, 1) in endpoints
 
 def test_trajectory_generator_cost_integration():
     world = DiscreteWorld(grid_size_x=5, grid_size_y=5, time_steps=5)
@@ -69,7 +69,7 @@ def test_trajectory_generator_cost_integration():
     calculator = ActionCalculator(world, move_weight=1.0, turn_weight=0.0, obstacle_weight=0.0, acceleration_weight=0.0)
     generator = TrajectoryGenerator(world, calculator)
 
-    start_state = (2, 2, 0)
+    start_state = (2, 2, 0, 0, 0)
     results = generator.generate(start_state, depth=1)
 
     # For depth 1, moves will cost 1.0, stay will cost 0.0

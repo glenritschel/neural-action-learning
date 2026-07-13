@@ -13,25 +13,29 @@ class GraphBuilder:
 
     def build_networkx_graph(self) -> nx.DiGraph:
         """
-        Builds a NetworkX directed graph where nodes are valid states (x, y, t)
-        and edges represent valid actions with their associated costs.
+        Builds a NetworkX directed graph where nodes are phase-space states (x, y, vx, vy, t)
+        so that an edge carries enough context to predict the full per-transition cost.
         """
         G = nx.DiGraph()
 
         # Add nodes
+        # Velocities in discrete grid are generally -1, 0, 1
         for t in range(self.world.time_steps):
             for x in range(self.world.grid_size_x):
                 for y in range(self.world.grid_size_y):
                     if self.world.is_valid_state(x, y, t):
-                        # Node features: normalized x, y, t
-                        nx_val = x / float(self.world.grid_size_x)
-                        ny_val = y / float(self.world.grid_size_y)
-                        nt_val = t / float(self.world.time_steps)
-                        G.add_node((x, y, t), x=nx_val, y=ny_val, t=nt_val)
+                        for vx in [-1, 0, 1]:
+                            for vy in [-1, 0, 1]:
+                                nx_val = x / float(self.world.grid_size_x)
+                                ny_val = y / float(self.world.grid_size_y)
+                                nt_val = t / float(self.world.time_steps)
+                                nvx_val = float(vx)
+                                nvy_val = float(vy)
+                                G.add_node((x, y, vx, vy, t), x=nx_val, y=ny_val, vx=nvx_val, vy=nvy_val, t=nt_val)
 
         # Add edges
         for node in G.nodes():
-            x, y, t = node
+            x, y, vx, vy, t = node
             next_t = t + 1
             if next_t >= self.world.time_steps:
                 continue
@@ -39,14 +43,11 @@ class GraphBuilder:
             for action in Action:
                 dx, dy = action.value
                 nx_state, ny_state = x + dx, y + dy
-                next_state = (nx_state, ny_state, next_t)
+                next_state = (nx_state, ny_state, dx, dy, next_t)
 
                 if next_state in G.nodes():
-                    # Calculate cost. Note: accurate cost requires previous state context for acceleration,
-                    # but for GNN edge prediction we might approximate it as the step cost from static.
-                    # Or we calculate it for a simple trajectory [node, next_state]
-                    path = [node, next_state]
-                    cost = self.calculator.calculate_cost(path)
+                    # Calculate true transition cost using full incoming velocity context
+                    cost = self.calculator.calculate_transition_cost(node, next_state)
 
                     G.add_edge(node, next_state, cost=cost, action_dx=dx, action_dy=dy)
 
@@ -63,7 +64,7 @@ class GraphBuilder:
         x = []
         for node in G.nodes():
             attrs = G.nodes[node]
-            x.append([attrs['x'], attrs['y'], attrs['t']])
+            x.append([attrs['x'], attrs['y'], attrs['vx'], attrs['vy'], attrs['t']])
         x_tensor = torch.tensor(x, dtype=torch.float32)
 
         # Prepare edge indices and features (costs)

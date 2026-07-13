@@ -49,3 +49,43 @@ class REINFORCE:
         self.optimizer.step()
 
         return loss.item()
+
+def train_reinforce(env, agent: REINFORCE, num_episodes: int, start_state: tuple) -> list:
+    """
+    Runs a REINFORCE training loop by collecting rollouts from the environment.
+    """
+    loss_history = []
+
+    for episode in range(num_episodes):
+        state = env.reset(start_state)
+
+        log_probs = []
+        rewards = []
+
+        done = False
+        while not done:
+            state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+
+            # Forward pass to get action probabilities
+            probs = agent.policy(state_tensor)
+
+            # Sample an action
+            m = Categorical(probs)
+            action_idx = m.sample()
+
+            log_prob = m.log_prob(action_idx)
+
+            # Step environment
+            next_state, reward, done, info = env.step(action_idx.item())
+
+            log_probs.append(log_prob)
+            rewards.append(reward)
+
+            state = next_state
+
+        # Update policy at the end of the episode
+        if len(rewards) > 0:
+            loss = agent.update_policy(rewards, log_probs)
+            loss_history.append(loss)
+
+    return loss_history

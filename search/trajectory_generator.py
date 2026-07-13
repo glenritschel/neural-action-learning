@@ -7,7 +7,7 @@ class TrajectoryGenerator:
         self.world = world
         self.calculator = calculator
 
-    def generate(self, start_state: Tuple[int, int, int], depth: int) -> List[Dict[str, Any]]:
+    def generate(self, start_state: Tuple[int, int, int, int, int], depth: int) -> List[Dict[str, Any]]:
         """
         Generates all valid trajectories of length `depth` (number of moves) from the start_state.
         Trajectory length in states will be `depth + 1`.
@@ -15,7 +15,7 @@ class TrajectoryGenerator:
         """
         results = []
 
-        def dfs(current_state: Tuple[int, int, int], current_path: List[Tuple[int, int, int]]):
+        def dfs(current_state: Tuple[int, int, int, int, int], current_path: List[Tuple[int, int, int, int, int]]):
             if len(current_path) == depth + 1:
                 cost = self.calculator.calculate_cost(current_path)
                 endpoint = current_path[-1]
@@ -30,7 +30,7 @@ class TrajectoryGenerator:
                 })
                 return
 
-            x, y, t = current_state
+            x, y, vx, vy, t = current_state
             next_t = t + 1
 
             for action in Action:
@@ -39,12 +39,13 @@ class TrajectoryGenerator:
 
                 # Check validity
                 if self.world.is_valid_state(nx, ny, next_t):
-                    current_path.append((nx, ny, next_t))
-                    dfs((nx, ny, next_t), current_path)
+                    next_state = (nx, ny, dx, dy, next_t)
+                    current_path.append(next_state)
+                    dfs(next_state, current_path)
                     current_path.pop()
 
         # Check start state validity
-        x, y, t = start_state
+        x, y, vx, vy, t = start_state
         if self.world.is_valid_state(x, y, t):
             dfs(start_state, [start_state])
 
