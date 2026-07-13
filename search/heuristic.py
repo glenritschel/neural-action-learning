@@ -10,6 +10,8 @@ class MLPHeuristic:
         self.world = world
         self.model.eval()
         self.builder = DatasetBuilder(world.grid_size_x, world.grid_size_y, world.time_steps)
+        sample_features = self.builder.build_features((0, 0, 0, 0, 0), (0, 0))
+        assert self.model.input_dim == len(sample_features), f"Model input_dim {self.model.input_dim} does not match feature dim {len(sample_features)}"
 
     def predict_cost(self, current_state: Tuple[int, int, int, int, int], goal_state: Tuple[int, int]) -> float:
         """

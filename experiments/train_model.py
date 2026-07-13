@@ -89,6 +89,10 @@ def train():
 
         print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss/len(train_loader):.4f} - Val Loss: {val_loss/len(val_loader):.4f} - Val MAE: {metrics['mae']:.4f} - Val R2: {metrics['r2']:.4f}")
 
+    metrics_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", "metrics.json")
+    with open(metrics_path, "w") as f:
+        json.dump({"mae": float(metrics["mae"]), "r2": float(metrics["r2"])}, f)
+
     weights_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", "action_mlp_weights.pth")
     torch.save(model.state_dict(), weights_path)
     print(f"Model saved to {weights_path}")

@@ -1,7 +1,7 @@
 import pytest
 from environment.discrete_world import DiscreteWorld
 from action.action_calculator import ActionCalculator
-from search.search_algorithms import dynamic_programming_search, a_star_search
+from search.search_algorithms import dynamic_programming_search, a_star_search, focal_search
 
 @pytest.fixture
 def world():
@@ -35,5 +35,5 @@ def test_focal_search_bound(world, calculator):
     heuristic = MockInadmissibleHeuristic()
 
     for w in [1.0, 1.2, 1.5, 2.0]:
-        res = a_star_search(world, calculator, heuristic, start_state, goal_state, max_depth, weight=w)
+        res = focal_search(world, calculator, heuristic, start_state, goal_state, max_depth, weight=w)
         assert res.cost <= w * opt_cost, f"Weight {w}: cost {res.cost} exceeded {w} * {opt_cost}"
