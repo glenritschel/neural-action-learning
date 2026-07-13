@@ -17,12 +17,13 @@ def test_benchmark_loads_checkpoint(mock_exists, mock_action_mlp, mock_torch_loa
     mock_torch_load.return_value = {"dummy": "state_dict"}
 
     # Run only up to the setup to avoid running full benchmark loop
+
     with patch('experiments.benchmark.pd.DataFrame'), \
          patch('experiments.benchmark.dynamic_programming_search', return_value=MagicMock(path=[], cost=float('inf'), nodes_expanded=0, runtime=0, memory_footprint=0)), \
          patch('experiments.benchmark.a_star_search', return_value=MagicMock(path=[], cost=float('inf'), nodes_expanded=0, runtime=0, memory_footprint=0)), \
          patch('experiments.benchmark.focal_search', return_value=MagicMock(path=[], cost=float('inf'), nodes_expanded=0, runtime=0, memory_footprint=0)), \
          patch('experiments.benchmark.beam_search', return_value=MagicMock(path=[], cost=float('inf'), nodes_expanded=0, runtime=0, memory_footprint=0)), \
-         patch('experiments.benchmark.json.load', return_value={"mae": 1.0, "r2": 0.5}), \
+         patch('experiments.benchmark.json.load', side_effect=[{"test_goals": [[4, 2], [4, 1], [9, 1], [0, 9], [6, 5], [5, 0], [0, 1], [7, 0], [1, 5], [7, 8]]}, {"mae": 1.0, "r2": 0.5}]), \
          patch('builtins.open', MagicMock()):
 
         benchmark.run_benchmark()
