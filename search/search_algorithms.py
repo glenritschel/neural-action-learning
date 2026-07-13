@@ -79,46 +79,91 @@ def brute_force_search(world: DiscreteWorld, calculator: ActionCalculator, start
 
 from search.heuristic import MLPHeuristic
 import heapq
+from itertools import count
 
 @track_metrics
 def focal_search(world: DiscreteWorld, calculator: ActionCalculator, heuristic: Any,
                  start_state, goal_state, max_depth: int, weight: float = 1.5):
     """
-    A*_epsilon (Focal Search). OPEN is ordered by the ADMISSIBLE score f_adm = g + h_adm.
-    FOCAL = { n in OPEN : f_adm(n) <= weight * min_OPEN f_adm }. Within FOCAL we expand the
-    node with the smallest LEARNED heuristic h_learn. Because every expanded node satisfies
-    f_adm <= weight * f_min <= weight * C*, and a goal node has h_adm = 0 (so f_adm = g),
-    the returned path cost g <= weight * C*. This is the real bound the summed f never had.
+    A*_epsilon (Focal Search), two-heap O(log n) implementation.
+    OPEN (open_f) is the authoritative frontier, a min-heap on the ADMISSIBLE
+    f_adm = g + h_adm. FOCAL is a min-heap on the LEARNED h_learn holding the OPEN
+    nodes with f_adm <= weight * f_min; 'pending' feeds nodes into FOCAL in f order
+    as f_min rises. h_adm is consistent here, so f_min is non-decreasing and FOCAL
+    membership is never revoked. Every expanded node has f_adm <= weight * f_min
+    <= weight * C*, and a goal has h_adm = 0, so the returned cost g <= weight * C*.
     """
-    def h_adm(state, goal):
+    def h_adm(state):
         x, y, _, _, _ = state
-        gx, gy = goal
+        gx, gy = goal_state
         return float(abs(gx - x) + abs(gy - y)) * calculator.move_weight
 
-    def h_learn(state, goal):
-        return heuristic.predict_cost(state, goal) if hasattr(heuristic, 'predict_cost') else 0.0
+    def h_learn(state):
+        return heuristic.predict_cost(state, goal_state) if hasattr(heuristic, 'predict_cost') else 0.0
 
-    counter = 0
-    open_list = [(h_adm(start_state, goal_state), counter, 0.0, start_state, [start_state])]
-    counter += 1
+    tie = count()
     best_g = {start_state: 0.0}
+    parent = {start_state: None}
+    closed = set()
+
+    open_f = []    # (f_adm, tie, g, state) -- full frontier, lazy deletion
+    pending = []   # (f_adm, tie, g, state) -- frontier nodes not yet in FOCAL
+    focal = []     # (h_learn, tie, g, state) -- subset with f_adm <= weight * f_min
+
+    e0 = (h_adm(start_state), next(tie), 0.0, start_state)
+    heapq.heappush(open_f, e0)
+    heapq.heappush(pending, e0)
     nodes_expanded = 0
 
-    while open_list:
-        f_min = min(e[0] for e in open_list)
-        focal = [e for e in open_list if e[0] <= weight * f_min]
-        chosen = min(focal, key=lambda e: h_learn(e[3], goal_state))  # learned ordering
-        open_list.remove(chosen)
+    def is_stale(g, s):
+        return s in closed or g > best_g.get(s, float('inf'))
 
-        f_adm, _, g_score, current_state, path = chosen
+    while open_f:
+        # 1. global f_min = smallest valid admissible f over the whole frontier
+        while open_f and is_stale(open_f[0][2], open_f[0][3]):
+            heapq.heappop(open_f)
+        if not open_f:
+            break
+        f_min = open_f[0][0]
+
+        # 2. promote every pending node now within the threshold into FOCAL
+        threshold = weight * f_min
+        while pending and pending[0][0] <= threshold:
+            f, t, g, s = heapq.heappop(pending)
+            if is_stale(g, s):
+                continue
+            heapq.heappush(focal, (h_learn(s), t, g, s))
+
+        # 3. expand the valid FOCAL node with the smallest learned heuristic
+        chosen = None
+        while focal:
+            hl, t, g, s = heapq.heappop(focal)
+            if is_stale(g, s):
+                continue
+            chosen = (g, s)
+            break
+        if chosen is None:
+            # FOCAL momentarily empty: fall back to the f_min node
+            f, t, g, s = heapq.heappop(open_f)
+            if is_stale(g, s):
+                continue
+            chosen = (g, s)
+
+        g_score, current_state = chosen
+        closed.add(current_state)
         nodes_expanded += 1
         x, y, vx, vy, t = current_state
 
         if (x, y) == goal_state:
+            path = []
+            s = current_state
+            while s is not None:
+                path.append(s)
+                s = parent[s]
+            path.reverse()
             return path, g_score, nodes_expanded
-        if len(path) - 1 >= max_depth or t + 1 >= world.time_steps:
-            continue
-        if best_g.get(current_state, float('inf')) < g_score:
+
+        if t >= max_depth or t + 1 >= world.time_steps:
             continue
 
         next_t = t + 1
@@ -130,9 +175,10 @@ def focal_search(world: DiscreteWorld, calculator: ActionCalculator, heuristic: 
                 ng = g_score + calculator.calculate_transition_cost(current_state, next_state)
                 if ng < best_g.get(next_state, float('inf')):
                     best_g[next_state] = ng
-                    nf = ng + h_adm(next_state, goal_state)
-                    open_list.append((nf, counter, ng, next_state, path + [next_state]))
-                    counter += 1
+                    parent[next_state] = current_state
+                    ent = (ng + h_adm(next_state), next(tie), ng, next_state)
+                    heapq.heappush(open_f, ent)
+                    heapq.heappush(pending, ent)
     return [], float('inf'), nodes_expanded
 
 @track_metrics
@@ -164,6 +210,11 @@ def a_star_search(world: DiscreteWorld, calculator: ActionCalculator, heuristic:
     while pq:
         f_score, _, g_score, current_state, path = heapq.heappop(pq)
 
+        state_key = current_state
+        if state_key in visited and visited[state_key] <= g_score:
+            continue
+        visited[state_key] = g_score
+
         nodes_expanded += 1
 
         x, y, vx, vy, t = current_state
@@ -172,12 +223,6 @@ def a_star_search(world: DiscreteWorld, calculator: ActionCalculator, heuristic:
 
         if len(path) - 1 >= max_depth or t + 1 >= world.time_steps:
             continue
-
-        state_key = current_state
-
-        if state_key in visited and visited[state_key] <= g_score:
-            continue
-        visited[state_key] = g_score
 
         next_t = t + 1
         for action in Action:
