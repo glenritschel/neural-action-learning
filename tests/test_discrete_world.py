@@ -37,7 +37,7 @@ def test_discrete_world_state_validity():
 
 def test_discrete_world_trajectories():
     world = DiscreteWorld(20, 20, 40)
-    traj = [(0, 0, 0), (0, 1, 1), (1, 1, 2)]
+    traj = [(0, 0, 0, 1, 0), (0, 1, 0, 1, 1), (1, 1, 1, 0, 2)]
     world.add_trajectory(traj)
     assert len(world.trajectories) == 1
     assert world.trajectories[0] == traj

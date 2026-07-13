@@ -4,6 +4,7 @@ import torch.nn as nn
 class ActionMLP(nn.Module):
     def __init__(self, input_dim: int, output_dim: int):
         super(ActionMLP, self).__init__()
+        self.input_dim = input_dim
         self.network = nn.Sequential(
             nn.Linear(input_dim, 512),
             nn.ReLU(),

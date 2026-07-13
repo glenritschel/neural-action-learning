@@ -33,15 +33,15 @@ class DiscreteWorld:
         """Checks if the given (x, y) coordinate is within the grid."""
         return 0 <= x < self.grid_size_x and 0 <= y < self.grid_size_y
 
-    def add_trajectory(self, trajectory: List[Tuple[int, int, int]]):
+    def add_trajectory(self, trajectory: List[Tuple[int, int, int, int, int]]):
         """Adds a trajectory to the world."""
         # Simple validation
         for state in trajectory:
-            if len(state) != 3:
-                raise ValueError("State must be a tuple of (x, y, t).")
-            x, y, t = state
+            if len(state) != 5:
+                raise ValueError("State must be a tuple of (x, y, vx, vy, t).")
+            x, y, vx, vy, t = state
             if not self.is_within_bounds(x, y):
-                raise ValueError(f"State ({x}, {y}, {t}) is out of bounds.")
+                raise ValueError(f"State ({x}, {y}, {vx}, {vy}, {t}) is out of bounds.")
             if not (0 <= t < self.time_steps):
                 raise ValueError(f"Time step {t} is out of bounds (0 to {self.time_steps - 1}).")
 

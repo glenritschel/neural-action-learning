@@ -81,11 +81,65 @@ from search.heuristic import MLPHeuristic
 import heapq
 
 @track_metrics
+def focal_search(world: DiscreteWorld, calculator: ActionCalculator, heuristic: Any,
+                 start_state, goal_state, max_depth: int, weight: float = 1.5):
+    """
+    A*_epsilon (Focal Search). OPEN is ordered by the ADMISSIBLE score f_adm = g + h_adm.
+    FOCAL = { n in OPEN : f_adm(n) <= weight * min_OPEN f_adm }. Within FOCAL we expand the
+    node with the smallest LEARNED heuristic h_learn. Because every expanded node satisfies
+    f_adm <= weight * f_min <= weight * C*, and a goal node has h_adm = 0 (so f_adm = g),
+    the returned path cost g <= weight * C*. This is the real bound the summed f never had.
+    """
+    def h_adm(state, goal):
+        x, y, _, _, _ = state
+        gx, gy = goal
+        return float(abs(gx - x) + abs(gy - y)) * calculator.move_weight
+
+    def h_learn(state, goal):
+        return heuristic.predict_cost(state, goal) if hasattr(heuristic, 'predict_cost') else 0.0
+
+    counter = 0
+    open_list = [(h_adm(start_state, goal_state), counter, 0.0, start_state, [start_state])]
+    counter += 1
+    best_g = {start_state: 0.0}
+    nodes_expanded = 0
+
+    while open_list:
+        f_min = min(e[0] for e in open_list)
+        focal = [e for e in open_list if e[0] <= weight * f_min]
+        chosen = min(focal, key=lambda e: h_learn(e[3], goal_state))  # learned ordering
+        open_list.remove(chosen)
+
+        f_adm, _, g_score, current_state, path = chosen
+        nodes_expanded += 1
+        x, y, vx, vy, t = current_state
+
+        if (x, y) == goal_state:
+            return path, g_score, nodes_expanded
+        if len(path) - 1 >= max_depth or t + 1 >= world.time_steps:
+            continue
+        if best_g.get(current_state, float('inf')) < g_score:
+            continue
+
+        next_t = t + 1
+        for action in Action:
+            dx, dy = action.value
+            nx, ny = x + dx, y + dy
+            next_state = (nx, ny, dx, dy, next_t)
+            if world.is_valid_state(nx, ny, next_t):
+                ng = g_score + calculator.calculate_transition_cost(current_state, next_state)
+                if ng < best_g.get(next_state, float('inf')):
+                    best_g[next_state] = ng
+                    nf = ng + h_adm(next_state, goal_state)
+                    open_list.append((nf, counter, ng, next_state, path + [next_state]))
+                    counter += 1
+    return [], float('inf'), nodes_expanded
+
+@track_metrics
 def a_star_search(world: DiscreteWorld, calculator: ActionCalculator, heuristic: Any, start_state: Tuple[int, int, int, int, int], goal_state: Tuple[int, int], max_depth: int, weight: float = 1.0) -> Tuple[List[Tuple[int, int, int, int, int]], float, int]:
     """
-    Bounded-suboptimal weighted A* Search utilizing a learned heuristic (if provided).
-    If heuristic is an MLPHeuristic, we compute f = g + w * h_learn + h_adm.
-    If heuristic is a dummy/baseline heuristic, we just use f = g + h_adm.
+    Standard A* Search.
+    Computes f = g + h_adm.
     """
     # Priority queue stores tuples of (f_score, tie_breaker, g_score, current_state, path)
     counter = 0
@@ -99,14 +153,7 @@ def a_star_search(world: DiscreteWorld, calculator: ActionCalculator, heuristic:
     start_g_score = 0.0
     adm_h = h_adm(start_state, goal_state)
 
-    # If the heuristic has predict_cost, use it as h_learn
-    if hasattr(heuristic, 'predict_cost'):
-        learn_h = heuristic.predict_cost(start_state, goal_state)
-    else:
-        learn_h = 0.0
-        weight = 0.0 # Ignore learned heuristic weight if no learned model
-
-    start_f_score = start_g_score + adm_h + (weight * learn_h)
+    start_f_score = start_g_score + adm_h
 
     pq = [(start_f_score, counter, start_g_score, start_state, [start_state])]
     counter += 1
@@ -143,15 +190,8 @@ def a_star_search(world: DiscreteWorld, calculator: ActionCalculator, heuristic:
                 step_cost = calculator.calculate_transition_cost(current_state, next_state)
 
                 next_g_score = g_score + step_cost
-
                 next_adm_h = h_adm(next_state, goal_state)
-
-                if hasattr(heuristic, 'predict_cost'):
-                    next_learn_h = heuristic.predict_cost(next_state, goal_state)
-                else:
-                    next_learn_h = 0.0
-
-                next_f_score = next_g_score + next_adm_h + (weight * next_learn_h)
+                next_f_score = next_g_score + next_adm_h
 
                 heapq.heappush(pq, (next_f_score, counter, next_g_score, next_state, path + [next_state]))
                 counter += 1
