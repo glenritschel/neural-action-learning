@@ -59,7 +59,7 @@ class DatasetBuilder:
 
         return [nx, ny, nvx, nvy, nt, ngx, ngy, steps_remaining_norm, dx, dy, manhattan_norm]
 
-    def generate_cost_to_go_dataset(self, world, calculator, num_instances: int, max_depth: int) -> pd.DataFrame:
+    def generate_cost_to_go_dataset(self, world, calculator, num_instances: int, max_depth: int, train_goals: List[tuple] = None) -> pd.DataFrame:
         """
         Uses exact A* search to solve instances and generate true cost-to-go labels
         for states on the optimal path and sampled off-path states.
@@ -80,12 +80,13 @@ class DatasetBuilder:
 
         dataset_records = []
 
+        if train_goals is None:
+            # Fallback for old tests, but shouldn't be used in real benchmark
+            train_goals = [(x, y) for x in range(world.grid_size_x) for y in range(world.grid_size_y)]
+
         for _ in range(num_instances):
-            # Hold out goals: in this simple implementation, we randomly pick a goal,
-            # but in a real training script we would strictly separate train/test goals.
-            gx = random.randint(0, world.grid_size_x - 1)
-            gy = random.randint(0, world.grid_size_y - 1)
-            goal_state = (gx, gy)
+            # Sample goal from the strictly held-out training set
+            goal_state = tuple(random.choice(train_goals))
 
             # Random valid start state
             while True:
@@ -97,7 +98,9 @@ class DatasetBuilder:
             start_state = (sx, sy, 0, 0, 0)
 
             # Solve using A*
-            path, final_cost, _ = a_star_search(world, calculator, baseline_heuristic, start_state, goal_state, max_depth)
+            res = a_star_search(world, calculator, baseline_heuristic, start_state, goal_state, max_depth)
+            path = res.path
+            final_cost = res.cost
 
             if final_cost == float('inf') or not path:
                 continue # Unsolvable or didn't reach in max_depth
@@ -123,7 +126,8 @@ class DatasetBuilder:
                         off_path_state = (nx, ny, dx, dy, next_t)
                         if off_path_state not in path:
                             # Try to solve from off-path state to get its cost-to-go
-                            off_path, off_cost, _ = a_star_search(world, calculator, baseline_heuristic, off_path_state, goal_state, max_depth - i - 1)
+                            off_res = a_star_search(world, calculator, baseline_heuristic, off_path_state, goal_state, max_depth - i - 1)
+                            off_cost = off_res.cost
                             if off_cost != float('inf'):
                                 off_features = self.build_features(off_path_state, goal_state, world.time_steps)
                                 dataset_records.append({"features": off_features, "cost": off_cost})
