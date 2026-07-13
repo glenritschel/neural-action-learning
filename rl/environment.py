@@ -8,20 +8,22 @@ class PathingEnv:
         self.world = world
         self.calculator = calculator
         self.goal_state = goal_state
-        self.current_state: Optional[Tuple[int, int, int]] = None
-        self.path: List[Tuple[int, int, int]] = []
+        self.current_state: Optional[Tuple[int, int, int, int, int]] = None
+        self.path: List[Tuple[int, int, int, int, int]] = []
 
     def get_observation(self) -> np.ndarray:
-        x, y, t = self.current_state
+        x, y, vx, vy, t = self.current_state
         # Normalize
         nx = x / float(self.world.grid_size_x)
         ny = y / float(self.world.grid_size_y)
         nt = t / float(self.world.time_steps)
+        nvx = float(vx)
+        nvy = float(vy)
         gx = self.goal_state[0] / float(self.world.grid_size_x)
         gy = self.goal_state[1] / float(self.world.grid_size_y)
-        return np.array([nx, ny, nt, gx, gy], dtype=np.float32)
+        return np.array([nx, ny, nvx, nvy, nt, gx, gy], dtype=np.float32)
 
-    def reset(self, start_state: Tuple[int, int, int]) -> np.ndarray:
+    def reset(self, start_state: Tuple[int, int, int, int, int]) -> np.ndarray:
         self.current_state = start_state
         self.path = [start_state]
         return self.get_observation()
@@ -32,7 +34,7 @@ class PathingEnv:
             raise ValueError(f"Invalid action index {action_idx}")
 
         action = action_list[action_idx]
-        x, y, t = self.current_state
+        x, y, vx, vy, t = self.current_state
 
         dx, dy = action.value
         next_t = t + 1
@@ -56,14 +58,12 @@ class PathingEnv:
             return self.get_observation(), reward, done, info
 
         # Valid move
-        next_state = (nx, ny, next_t)
+        next_state = (nx, ny, dx, dy, next_t)
 
         # Calculate cost increment
-        cost_before = self.calculator.calculate_cost(self.path)
+        step_cost = self.calculator.calculate_transition_cost(self.current_state, next_state)
         self.path.append(next_state)
-        cost_after = self.calculator.calculate_cost(self.path)
 
-        step_cost = cost_after - cost_before
         reward = -step_cost # Reward is negative cost
 
         self.current_state = next_state

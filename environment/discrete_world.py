@@ -48,5 +48,5 @@ class DiscreteWorld:
         self.trajectories.append(trajectory)
 
     def is_valid_state(self, x: int, y: int, t: int) -> bool:
-        """Checks if a state (x, y, t) is valid (within bounds, correct time, not an obstacle)."""
-        return self.is_within_bounds(x, y) and (0 <= t < self.time_steps) and not self.is_obstacle(x, y)
+        """Checks if a state (x, y, t) is valid (within bounds, correct time). Allows stepping onto obstacles (soft obstacles)."""
+        return self.is_within_bounds(x, y) and (0 <= t < self.time_steps)

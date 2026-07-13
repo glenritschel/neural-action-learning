@@ -30,7 +30,7 @@ def test_discrete_world_state_validity():
     world.set_obstacle(2, 2)
 
     assert world.is_valid_state(0, 0, 0)
-    assert not world.is_valid_state(2, 2, 0)  # Obstacle
+    assert world.is_valid_state(2, 2, 0)  # Soft Obstacle (valid to step on)
     assert not world.is_valid_state(20, 0, 0) # Out of bounds x
     assert not world.is_valid_state(0, 0, 40) # Out of bounds t
     assert not world.is_valid_state(0, 0, -1) # Negative t

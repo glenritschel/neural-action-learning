@@ -39,17 +39,17 @@ def track_metrics(search_func: Callable) -> Callable:
     return wrapper
 
 @track_metrics
-def brute_force_search(world: DiscreteWorld, calculator: ActionCalculator, start_state: Tuple[int, int, int], goal_state: Tuple[int, int], max_depth: int) -> Tuple[List[Tuple[int, int, int]], float, int]:
+def brute_force_search(world: DiscreteWorld, calculator: ActionCalculator, start_state: Tuple[int, int, int, int, int], goal_state: Tuple[int, int], max_depth: int) -> Tuple[List[Tuple[int, int, int, int, int]], float, int]:
     """Exhaustive DFS to find the optimal path to the goal."""
     best_path = []
     best_cost = float('inf')
     nodes_expanded = 0
 
-    def dfs(current_path: List[Tuple[int, int, int]]):
+    def dfs(current_path: List[Tuple[int, int, int, int, int]]):
         nonlocal best_path, best_cost, nodes_expanded
 
         current_state = current_path[-1]
-        x, y, t = current_state
+        x, y, vx, vy, t = current_state
 
         nodes_expanded += 1
 
@@ -69,7 +69,8 @@ def brute_force_search(world: DiscreteWorld, calculator: ActionCalculator, start
             nx, ny = x + dx, y + dy
 
             if world.is_valid_state(nx, ny, next_t):
-                current_path.append((nx, ny, next_t))
+                next_state = (nx, ny, dx, dy, next_t)
+                current_path.append(next_state)
                 dfs(current_path)
                 current_path.pop()
 
@@ -80,35 +81,52 @@ from search.heuristic import MLPHeuristic
 import heapq
 
 @track_metrics
-def a_star_search(world: DiscreteWorld, calculator: ActionCalculator, heuristic: MLPHeuristic, start_state: Tuple[int, int, int], goal_state: Tuple[int, int], max_depth: int) -> Tuple[List[Tuple[int, int, int]], float, int]:
-    """A* Search utilizing an integrated MLP model as a heuristic to predict remaining path action cost."""
+def a_star_search(world: DiscreteWorld, calculator: ActionCalculator, heuristic: Any, start_state: Tuple[int, int, int, int, int], goal_state: Tuple[int, int], max_depth: int, weight: float = 1.0) -> Tuple[List[Tuple[int, int, int, int, int]], float, int]:
+    """
+    Bounded-suboptimal weighted A* Search utilizing a learned heuristic (if provided).
+    If heuristic is an MLPHeuristic, we compute f = g + w * h_learn + h_adm.
+    If heuristic is a dummy/baseline heuristic, we just use f = g + h_adm.
+    """
     # Priority queue stores tuples of (f_score, tie_breaker, g_score, current_state, path)
-    # Tie breaker is needed because tuples can't be compared if f_scores are equal and objects aren't comparable
     counter = 0
 
-    start_g_score = 0.0
-    start_h_score = heuristic.predict_cost(start_state, goal_state)
+    def h_adm(state, goal):
+        # True admissible lower bound: min_move_cost * manhattan distance
+        x, y, _, _, _ = state
+        gx, gy = goal
+        return float(abs(gx - x) + abs(gy - y)) * calculator.move_weight
 
-    pq = [(start_g_score + start_h_score, counter, start_g_score, start_state, [start_state])]
+    start_g_score = 0.0
+    adm_h = h_adm(start_state, goal_state)
+
+    # If the heuristic has predict_cost, use it as h_learn
+    if hasattr(heuristic, 'predict_cost'):
+        learn_h = heuristic.predict_cost(start_state, goal_state)
+    else:
+        learn_h = 0.0
+        weight = 0.0 # Ignore learned heuristic weight if no learned model
+
+    start_f_score = start_g_score + adm_h + (weight * learn_h)
+
+    pq = [(start_f_score, counter, start_g_score, start_state, [start_state])]
     counter += 1
 
     nodes_expanded = 0
-    visited = {} # to track best g_score for (state, prev_state) pair
+    visited = {} # to track best g_score for the full Markov state
 
     while pq:
         f_score, _, g_score, current_state, path = heapq.heappop(pq)
 
         nodes_expanded += 1
 
-        x, y, t = current_state
+        x, y, vx, vy, t = current_state
         if (x, y) == goal_state:
             return path, g_score, nodes_expanded
 
         if len(path) - 1 >= max_depth or t + 1 >= world.time_steps:
             continue
 
-        prev_state = path[-2] if len(path) > 1 else None
-        state_key = (current_state, prev_state)
+        state_key = current_state
 
         if state_key in visited and visited[state_key] <= g_score:
             continue
@@ -118,17 +136,22 @@ def a_star_search(world: DiscreteWorld, calculator: ActionCalculator, heuristic:
         for action in Action:
             dx, dy = action.value
             nx, ny = x + dx, y + dy
-            next_state = (nx, ny, next_t)
+            next_state = (nx, ny, dx, dy, next_t)
 
             if world.is_valid_state(nx, ny, next_t):
-                # Calculate cost of adding this step
-                cost_with_next = calculator.calculate_cost(path + [next_state])
-                cost_without_next = calculator.calculate_cost(path)
-                step_cost = cost_with_next - cost_without_next
+                # Calculate cost of adding this step incrementally
+                step_cost = calculator.calculate_transition_cost(current_state, next_state)
 
                 next_g_score = g_score + step_cost
-                next_h_score = heuristic.predict_cost(next_state, goal_state)
-                next_f_score = next_g_score + next_h_score
+
+                next_adm_h = h_adm(next_state, goal_state)
+
+                if hasattr(heuristic, 'predict_cost'):
+                    next_learn_h = heuristic.predict_cost(next_state, goal_state)
+                else:
+                    next_learn_h = 0.0
+
+                next_f_score = next_g_score + next_adm_h + (weight * next_learn_h)
 
                 heapq.heappush(pq, (next_f_score, counter, next_g_score, next_state, path + [next_state]))
                 counter += 1
@@ -136,7 +159,7 @@ def a_star_search(world: DiscreteWorld, calculator: ActionCalculator, heuristic:
     return [], float('inf'), nodes_expanded
 
 @track_metrics
-def beam_search(world: DiscreteWorld, calculator: ActionCalculator, heuristic: MLPHeuristic, start_state: Tuple[int, int, int], goal_state: Tuple[int, int], max_depth: int, beam_width: int = 5) -> Tuple[List[Tuple[int, int, int]], float, int]:
+def beam_search(world: DiscreteWorld, calculator: ActionCalculator, heuristic: MLPHeuristic, start_state: Tuple[int, int, int, int, int], goal_state: Tuple[int, int], max_depth: int, beam_width: int = 5) -> Tuple[List[Tuple[int, int, int, int, int]], float, int]:
     """Beam Search maintaining only top-K candidates based on path cost and heuristic."""
     # Beam contains tuples of (f_score, path, g_score)
     start_h = heuristic.predict_cost(start_state, goal_state)
@@ -154,7 +177,7 @@ def beam_search(world: DiscreteWorld, calculator: ActionCalculator, heuristic: M
 
         for f_score, path, g_score in beam:
             current_state = path[-1]
-            x, y, t = current_state
+            x, y, vx, vy, t = current_state
 
             nodes_expanded += 1
 
@@ -171,12 +194,10 @@ def beam_search(world: DiscreteWorld, calculator: ActionCalculator, heuristic: M
             for action in Action:
                 dx, dy = action.value
                 nx, ny = x + dx, y + dy
-                next_state = (nx, ny, next_t)
+                next_state = (nx, ny, dx, dy, next_t)
 
                 if world.is_valid_state(nx, ny, next_t):
-                    cost_with_next = calculator.calculate_cost(path + [next_state])
-                    cost_without_next = calculator.calculate_cost(path)
-                    step_cost = cost_with_next - cost_without_next
+                    step_cost = calculator.calculate_transition_cost(current_state, next_state)
 
                     next_g_score = g_score + step_cost
                     next_h_score = heuristic.predict_cost(next_state, goal_state)
@@ -209,7 +230,7 @@ class MCTSNode:
         return (self.value / self.visits) + exploration_weight * math.sqrt(math.log(self.parent.visits) / self.visits)
 
 @track_metrics
-def mcts_search(world: DiscreteWorld, calculator: ActionCalculator, start_state: Tuple[int, int, int], goal_state: Tuple[int, int], max_depth: int, num_simulations: int = 1000) -> Tuple[List[Tuple[int, int, int]], float, int]:
+def mcts_search(world: DiscreteWorld, calculator: ActionCalculator, start_state: Tuple[int, int, int, int, int], goal_state: Tuple[int, int], max_depth: int, num_simulations: int = 1000) -> Tuple[List[Tuple[int, int, int, int, int]], float, int]:
     """Monte Carlo Tree Search for path finding."""
     nodes_expanded = 0
     root = MCTSNode(start_state)
@@ -225,13 +246,13 @@ def mcts_search(world: DiscreteWorld, calculator: ActionCalculator, start_state:
         # 2. Expansion
         if node.untried_actions:
             action = node.untried_actions.pop(0) # or random.choice(node.untried_actions)
-            x, y, t = node.state
+            x, y, vx, vy, t = node.state
             dx, dy = action.value
             next_t = t + 1
             nx, ny = x + dx, y + dy
 
             if world.is_valid_state(nx, ny, next_t):
-                next_state = (nx, ny, next_t)
+                next_state = (nx, ny, dx, dy, next_t)
                 child = MCTSNode(next_state, parent=node, action=action)
                 node.children.append(child)
                 node = child
@@ -253,7 +274,7 @@ def mcts_search(world: DiscreteWorld, calculator: ActionCalculator, start_state:
         rollout_path = path_prefix.copy()
 
         depth_in_rollout = len(rollout_path) - 1
-        x, y, t = current_rollout_state
+        x, y, vx, vy, t = current_rollout_state
 
         while (x, y) != goal_state and depth_in_rollout < max_depth and t + 1 < world.time_steps:
             valid_actions = []
@@ -262,7 +283,7 @@ def mcts_search(world: DiscreteWorld, calculator: ActionCalculator, start_state:
                 dx, dy = a.value
                 nx, ny = x + dx, y + dy
                 if world.is_valid_state(nx, ny, next_t):
-                    valid_actions.append((nx, ny, next_t))
+                    valid_actions.append((nx, ny, dx, dy, next_t))
 
             if not valid_actions:
                 break
@@ -270,7 +291,7 @@ def mcts_search(world: DiscreteWorld, calculator: ActionCalculator, start_state:
             next_state = random.choice(valid_actions)
             rollout_path.append(next_state)
             current_rollout_state = next_state
-            x, y, t = current_rollout_state
+            x, y, vx, vy, t = current_rollout_state
             depth_in_rollout += 1
 
         # Calculate cost. Reward is negative cost.
@@ -303,20 +324,19 @@ def mcts_search(world: DiscreteWorld, calculator: ActionCalculator, start_state:
     return best_path, final_cost, nodes_expanded
 
 @track_metrics
-def dynamic_programming_search(world: DiscreteWorld, calculator: ActionCalculator, start_state: Tuple[int, int, int], goal_state: Tuple[int, int], max_depth: int) -> Tuple[List[Tuple[int, int, int]], float, int]:
+def dynamic_programming_search(world: DiscreteWorld, calculator: ActionCalculator, start_state: Tuple[int, int, int, int, int], goal_state: Tuple[int, int], max_depth: int) -> Tuple[List[Tuple[int, int, int, int, int]], float, int]:
     """Dynamic programming (memoized DFS) over the DAG to find the optimal path to the goal."""
-    # Since cost depends on history (velocity/acceleration), we need to memoize based on state + previous state
-    # Memoization table: (current_state, previous_state) -> (best_cost_from_here, path_from_here, nodes_expanded_in_subtree)
+    # Since cost depends on history (velocity/acceleration), we need to memoize based on the full Markov state
+    # Memoization table: current_state -> (best_cost_from_here, path_from_here)
     memo = {}
     nodes_expanded = 0
 
-    def dfs(current_path: List[Tuple[int, int, int]]) -> Tuple[float, List[Tuple[int, int, int]]]:
+    def dfs(current_path: List[Tuple[int, int, int, int, int]]) -> Tuple[float, List[Tuple[int, int, int, int, int]]]:
         nonlocal nodes_expanded
 
         current_state = current_path[-1]
-        prev_state = current_path[-2] if len(current_path) > 1 else None
 
-        x, y, t = current_state
+        x, y, vx, vy, t = current_state
         nodes_expanded += 1
 
         if (x, y) == goal_state:
@@ -325,7 +345,7 @@ def dynamic_programming_search(world: DiscreteWorld, calculator: ActionCalculato
         if len(current_path) - 1 >= max_depth or t + 1 >= world.time_steps:
             return float('inf'), []
 
-        state_key = (current_state, prev_state)
+        state_key = current_state
         if state_key in memo:
             return memo[state_key]
 
@@ -337,23 +357,10 @@ def dynamic_programming_search(world: DiscreteWorld, calculator: ActionCalculato
             dx, dy = action.value
             nx, ny = x + dx, y + dy
 
-            next_state = (nx, ny, next_t)
+            next_state = (nx, ny, dx, dy, next_t)
             if world.is_valid_state(nx, ny, next_t):
-                current_path.append(next_state)
+                step_cost = calculator.calculate_transition_cost(current_state, next_state)
 
-                # To calculate the step cost, we need up to 3 states (prev, current, next) for acceleration
-                # We can calculate the cost of the path prefix to see the incremental cost
-                # But a cleaner way is just to calculate the cost of the [prev_prev, prev, current, next] if available
-
-                # We'll just calculate the cost of the whole path so far, and the whole path without the next state
-                # to get the incremental cost.
-                cost_with_next = calculator.calculate_cost(current_path)
-                current_path.pop() # remove next_state
-                cost_without_next = calculator.calculate_cost(current_path)
-
-                step_cost = cost_with_next - cost_without_next
-
-                # Re-append for the recursive call
                 current_path.append(next_state)
                 future_cost, future_path = dfs(current_path)
                 current_path.pop()
