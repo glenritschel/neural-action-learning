@@ -44,21 +44,20 @@ def run_benchmark():
         pass
     dummy_h = DummyHeuristic()
 
-    # 4. Generate Held-Out Instances
-    num_instances = 10
+    # 4. Held-Out Instances: use the persisted test_goals split (prevents train/test leakage)
     max_depth = 10
-    held_out_pairs = []
+    split_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "goal_split.json")
+    if not os.path.exists(split_path):
+        raise FileNotFoundError(
+            f"Goal split not found at {split_path}. Run experiments/goal_split.py first."
+        )
+    with open(split_path, "r") as f:
+        test_goals = [tuple(g) for g in json.load(f)["test_goals"]]
 
-    for _ in range(num_instances):
-        # Start state is always (0,0) for simplicity
-        start = (0, 0, 0, 0, 0)
-
-        while True:
-            gx, gy = random.randint(3, 9), random.randint(3, 9)
-            if not world.is_obstacle(gx, gy):
-                break
-        goal = (gx, gy)
-        held_out_pairs.append((start, goal))
+    start = (0, 0, 0, 0, 0)
+    # Soft obstacles are traversable; only drop a goal that coincides with the start.
+    held_out_pairs = [(start, g) for g in test_goals if g != (start[0], start[1])]
+    num_instances = len(held_out_pairs)
 
     results = []
 
