@@ -2,10 +2,11 @@ import numpy as np, matplotlib
 matplotlib.use("Agg"); import matplotlib.pyplot as plt
 from discrete_least_action import (free_particle, harmonic, dp_min_action,
     analytic_path, discrete_action, energy_along, del_residual)
+import os
 
 plt.rcParams.update({"font.size":11,"axes.grid":True,"grid.alpha":0.3,"figure.dpi":150})
 C_DP="#38a169"; C_AN="#2b6cb0"; C_E="#dd6b20"; C_BAD="#c53030"
-OUT="/sessions/sweet-confident-ritchie/mnt/outputs/physics"
+OUT=os.path.dirname(os.path.abspath(__file__))
 def rms(a,b): return float(np.sqrt(np.mean((a-b)**2)))
 
 # ===================================================== EXP 1: free particle
