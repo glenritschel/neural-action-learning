@@ -1,0 +1,22 @@
+# ---- versioned scratch files (keep the finals only; git is the history) ----
+*_v0*.ipynb
+*_v0*.md
+*_run.ipynb
+*-run.ipynb
+
+# ---- python / notebook cruft ----
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.pytest_cache/
+.DS_Store
+
+# ---- local envs / build artifacts ----
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# Windows "mark of the web" ADS files surfaced by WSL
+*Zone.Identifier
